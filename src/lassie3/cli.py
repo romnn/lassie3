@@ -29,6 +29,8 @@ def _settings(args: argparse.Namespace) -> RunSettings:
         settings = replace(settings, lassie_mad_multiple=args.lassie_mad_multiple)
     if getattr(args, "qseek_threshold", None) is not None:
         settings = replace(settings, qseek_detection_threshold=args.qseek_threshold)
+    if args.station_terms:
+        settings = replace(settings, station_terms=args.station_terms)
     return settings
 
 
@@ -62,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="suffix for a variant run so it does not overwrite the baseline")
     parser.add_argument("--lassie-spacing", type=float, metavar="METRES",
                         help="Lassie grid node spacing (default from settings, 2000)")
+    parser.add_argument("--station-terms", type=Path, metavar="TERMS_JSON",
+                        help="terms.json from `ssst-terms`; both detectors then add the "
+                             "source-specific station terms to their travel times")
     parser.add_argument("-v", "--verbose", action="store_true")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -102,6 +107,25 @@ def main(argv: list[str] | None = None) -> int:
                            help="MAD multiples to run (default: 20 40 60)")
     sweep_cmd.add_argument("--no-run", action="store_true",
                            help="only tabulate tagged runs that already exist")
+
+    terms_cmd = sub.add_parser("ssst-terms", help="derive source-specific station terms from the "
+                                                  "reference events of the other days")
+    terms_cmd.add_argument("--radius", type=float, default=3000.0, metavar="METRES",
+                           help="hypocentral separation beyond which a reference event stops "
+                                "informing a node (default 3000)")
+    terms_cmd.add_argument("--prior-weight", type=float, default=5.0,
+                           help="weight of the static term, in reference-event equivalents (default 5)")
+    terms_cmd.add_argument("--outlier-level", type=float, default=6.0,
+                           help="reject residuals beyond this many robust standard deviations (default 6)")
+    terms_cmd.add_argument("--min-probability", type=float, default=0.3,
+                           help="minimum PhaseNet probability for a pick (default 0.3)")
+    terms_cmd.add_argument("--train-days", type=_day, nargs="*", default=None, metavar="YYYY-MM-DD",
+                           help="days to learn from (default: every day with data except DAY)")
+    terms_cmd.add_argument("--limit", type=int,
+                           help="use only the first N reference events, for a quick check")
+    terms_cmd.add_argument("--force", action="store_true", help="re-derive even if terms.json exists")
+    sub.add_parser("compare-ssst", help="four-way table and figure: each detector with and "
+                                        "without station terms")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -160,6 +184,27 @@ def main(argv: list[str] | None = None) -> int:
 
             rows = sweep(settings, args.mad, run=not args.no_run)
             print(render_sweep(rows, len(load_reference(settings))))
+        case "ssst-terms":
+            from lassie3.ssst import StationTerms, TermsSettings, derive
+            from lassie3.ssst import render as render_terms
+
+            terms_settings = TermsSettings(
+                radius=args.radius,
+                prior_weight=args.prior_weight,
+                outlier_level=args.outlier_level,
+                min_probability=args.min_probability,
+            )
+            path = derive(settings, terms_settings, days=args.train_days, limit=args.limit, force=args.force)
+            print(render_terms(StationTerms.load(path)))
+            held_out = path.parent / "held-out.json"
+            if held_out.exists():
+                print(f"Held-out check on {settings.day_str}: {held_out.read_text()}")
+            print(f"Station terms: {path}")
+        case "compare-ssst":
+            from lassie3.ssst_compare import compare
+            from lassie3.ssst_compare import render as render_ssst
+
+            print(render_ssst(compare(settings)))
 
     return 0
 

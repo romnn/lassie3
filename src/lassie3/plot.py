@@ -26,7 +26,17 @@ logger = logging.getLogger(__name__)
 STYLE = {
     "lassie": {"color": "#c1440e", "marker": "o", "label": "Lassie v1 (STA/LTA + wave packet)"},
     "qseek": {"color": "#1f6feb", "marker": "^", "label": "Qseek (PhaseNet + octree)"},
+    # The station-term variants of the four-way comparison keep each
+    # detector's hue family but change shape, so a panel is readable in
+    # greyscale too.
+    "lassie+ssst": {"color": "#7b1fa2", "marker": "D", "label": "Lassie v1 + station terms"},
+    "qseek+ssst": {"color": "#00897b", "marker": "v", "label": "Qseek + station terms"},
 }
+
+
+def _family(name: str) -> str:
+    """The detector behind a catalog name such as "lassie+ssst"."""
+    return name.split("+")[0]
 
 #: Half-width of the source-zone close-ups. Four kilometres comfortably holds
 #: the WBNET cluster and Qseek's matches while still showing where Lassie's
@@ -280,7 +290,7 @@ def _scatter_catalog(axis, name, events, size_of, x_of, y_of, total=None) -> Non
 
 
 def _catalog_label(name, n_strong, n_shown, total) -> str:
-    label, criterion = STYLE[name]["label"], SUPPORT_CRITERIA[name]
+    label, criterion = STYLE[name]["label"], SUPPORT_CRITERIA[_family(name)]
     if total is not None and total != n_shown:
         return f"{label} — {n_shown} in view of {total}; {n_strong} meet: {criterion}"
     if n_strong != n_shown:
@@ -407,7 +417,7 @@ def _plot_zoom(axis, catalogs, sizes, settings, reference, spacing, depth_sectio
     for name, events in catalogs.items():
         inside = [e for e in events if in_view(e)]
         _scatter_catalog(axis, name, inside, sizes[name], lambda e: e.lon, y_of, total=len(events))
-        if name == "lassie":
+        if _family(name) == "lassie":
             for (lat, lon, depth), count in _coincident_counts(inside).items():
                 if count > 1:
                     axis.annotate(f"×{count}", (lon, depth / 1e3 if depth_section else lat),

@@ -158,6 +158,11 @@ class RunSettings:
     #: land next to the baseline instead of overwriting it.
     tag: str = ""
 
+    #: `terms.json` from `lassie3 ssst-terms`. When set, both detectors add the
+    #: source-specific station terms to their Cake travel times at every search
+    #: node; the baseline runs leave it unset.
+    station_terms: Path | None = None
+
     @property
     def tmin(self) -> dt.datetime:
         return dt.datetime.combine(self.day, dt.time.min, tzinfo=dt.timezone.utc)

@@ -117,6 +117,54 @@ tasks:
     cmds:
       - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} sweep {{.CLI_ARGS}}
 
+  ssst:terms:
+    desc: Derive source-specific station terms from the WBNET events of the other days
+    summary: |
+      Pass one of the station-term workflow: PhaseNet picks of every WBNET
+      reference event on the days other than DAY, taken against Cake travel
+      times through the shared 1D model, become per-station P and S residuals.
+      Writes results/ssst/eger-DAY/{terms.json,picks.csv,terms.png}. Skips if
+      terms.json exists; pass -- --force to redo, or -- --radius 5000 etc.
+    deps:
+      - task: prepare
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} ssst-terms {{.CLI_ARGS}}
+
+  ssst:lassie:
+    desc: Lassie v1 with the station terms added to its travel times (tag ssst)
+    deps:
+      - task: ssst:terms
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst --station-terms results/ssst/eger-{{.DAY}}/terms.json run-lassie --force {{.CLI_ARGS}}
+
+  ssst:qseek:
+    desc: Qseek with the station terms added to its travel times (tag ssst)
+    deps:
+      - task: ssst:terms
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - doctor
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst --station-terms results/ssst/eger-{{.DAY}}/terms.json run-qseek --force {{.CLI_ARGS}}
+
+  ssst:compare:
+    desc: Figure and review of the station-term pair, then the four-way table and figure against the baseline runs
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst plot
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst review
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} compare-ssst
+
+  ssst:
+    desc: Both detectors with station terms, then the four-way comparison (needs `task all` first)
+    cmds:
+      - task: ssst:lassie
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: ssst:qseek
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: ssst:compare
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+
   all:
     desc: Full baseline - both searches, then figure, summary and review
     cmds:
@@ -144,7 +192,7 @@ tasks:
   clean:
     desc: Remove all run outputs, keeping the staged inputs
     cmds:
-      - rm -rf results/lassie results/qseek results/comparison-*.png
+      - rm -rf results/lassie results/qseek results/ssst results/comparison-*.png
 
   clean:all:
     desc: Remove every generated file including the staged inputs

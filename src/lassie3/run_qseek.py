@@ -12,6 +12,12 @@ from pathlib import Path
 from lassie3.prepare import station_xml_files
 from lassie3.settings import RunSettings
 
+# Qseek fixes the set of accepted `station_corrections` classes when
+# `qseek.search` is first imported, so the plugin has to be registered before
+# any function here touches Qseek; a lazy import inside `build_search` came
+# too late because `run` imports `qseek.search` first.
+from lassie3.qseek_ssst import SSSTCorrections  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 APPROACH = "qseek"
@@ -78,6 +84,11 @@ def build_search(settings: RunSettings):
             )
         ],
         detection_threshold=settings.qseek_detection_threshold,
+        station_corrections=(
+            SSSTCorrections(terms_path=settings.station_terms.resolve())
+            if settings.station_terms is not None
+            else None
+        ),
     )
 
 

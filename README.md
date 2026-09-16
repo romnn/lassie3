@@ -33,6 +33,7 @@ algorithm":
 ```sh
 task sync        # install from uv.lock, then repair the OpenMP linkage
 task all         # prepare -> lassie -> qseek -> figure -> summary
+task ssst        # station terms from the other days, both detectors with them, four-way comparison
 ```
 
 `task smoke` runs the same pipeline over one hour, for checking a config change
@@ -54,6 +55,9 @@ results/
   comparison-<run>.png        six-panel figure, including source-zone close-ups
   comparison-<run>-strict.png the same runs shown above stricter levels (`task plot:strict`)
   review-<run>.json           adversarial checks (see below)
+  ssst/eger-<day>/            station terms (terms.json), the picks behind them, terms.png
+  comparison-ssst-<run>.png   four-way figure: each detector with and without station terms
+  compare-ssst-<run>.json     the four-way numbers
   archive-sx7/                seven-station variant runs and their figures (see Data)
 ```
 
@@ -352,6 +356,175 @@ tolerance, which is tied to the node spacing, so this run is not *only* a
 resolution change; it is nonetheless the closest stock Lassie gets to Qseek's
 312 m octree.)
 
+## Nine stations and station terms
+
+Everything above was measured with the seven SX stations. This section uses
+all nine open stations and adds the source-specific station terms (SSST)
+that neither detector has on its own.
+
+### Nine-station baseline
+
+`task all` with CZ.NKC and GQ.LNDWU staged, same operating points as before
+(Lassie at 30 MAD of its own image function, Qseek at its `MAD` default):
+
+| | Lassie, 7 SX (`sx7`) | Lassie, 9 stations | Qseek, 7 SX (`sx7`) | Qseek, 9 stations |
+|---|---|---|---|---|
+| detections (of which supported) | 47 (10) | 38 (16) | 1105 (109) | 1071 (130) |
+| Lassie threshold (30 MAD) | 71.4 | 90.9 | | |
+| recovered at ±0.5 / 1 / 2 / 3 / 5 s | 5 / 7 / 7 / 11 / 13 | 9 / 10 / 10 / 12 / 13 | 11 / 13 / 13 / 13 / 13 | 11 / 13 / 13 / 13 / 13 |
+| median origin time / epicentre / depth error | 0.63 s / 2.05 km / 2.60 km | 0.40 s / 2.11 km / 2.2 km | 0.043 s / 0.96 km / 0.09 km | 0.063 s / 0.81 km / 0.10 km |
+| mean origin time / epicentre / depth error | 1.59 s / 3.35 km / 5.44 km | 0.90 s / 2.38 km / 3.47 km | 0.18 s / 1.21 km / 0.22 km | 0.18 s / 0.94 km / 0.15 km |
+| mean offset north / east vs WBNET events | +1.22 / +2.30 km | +1.22 / +1.75 km | +0.75 / +0.48 km | +0.32 / +0.56 km |
+
+Two stations south of the source did what the geometry argument predicted.
+Lassie's origin-time error tightened and its depth mode moved from the surface
+to the 12 km node: 10 of its 13 matches now sit 1.8–2.6 km too deep and the
+other three at the 2 km node, 8 km too shallow. Its epicentres still all fall
+on one node 2.1 km north-east of the cluster. Qseek's epicentre error fell
+from 0.96 to 0.81 km and its north-east offset halved. Adding two well-placed
+stations changed more than any threshold or grid variant above.
+
+### Source-specific station terms
+
+Both detectors shift by Cake travel times through one 1D model, so whatever
+that model gets wrong along a particular path goes straight into the stack.
+Station terms are the standard remedy (static terms per station, or
+source-specific ones that vary with the source position; see
+[SCOTER](https://github.com/nimanzik/scoter), Nooshiri et al. 2019). Neither
+tool ships them, so this project derives them in a first pass and feeds them
+into a second:
+
+1. **Measure** (`task ssst:terms`, `src/lassie3/ssst.py`). For every WBNET
+   event on the *other* days of the data set (185 events, all on 2024-03-21
+   to -29; the evaluation day is held out, so no reference event informs
+   the terms it is scored against), PhaseNet picks P and S at every station
+   within ±2 s / ±3 s of the Cake arrival from the WBNET hypocentre, using the
+   same weights and the same zero-phase 2–30 Hz band as the Qseek run. The
+   residual is pick minus modelled arrival. Per event, the mean over all its
+   picks is removed — that is what re-solving the origin time would absorb —
+   and residuals beyond 6 robust standard deviations per phase are rejected,
+   as in SCOTER's dynamic outlier rejection. 2945 of 3020 picks survive
+   (median PhaseNet probability 0.96); 184 of the 185 events contribute.
+2. **Apply** (`task ssst:lassie`, `task ssst:qseek`, tag `ssst`). At every
+   search node each detector adds, per station and phase, the bicube
+   distance-weighted mean residual of the reference events within 3 km of the
+   node (SCOTER's weight, `(1 − (d/r)³)³`), with the static term — the plain
+   mean residual per station and phase — entering as five pseudo-events, so
+   nodes far from any reference event get exactly the static term and nodes
+   inside the cluster get the cluster's own. SCOTER shrinks the radius over
+   relocation iterations; the reference hypocentres here are fixed, so one
+   pass is the whole computation. `results/ssst/eger-<day>/terms.png` shows
+   the events used, the static terms, the residual distributions and the
+   term field of one station.
+
+Neither tool is patched for this. Lassie takes any `Shifter` subclass in an
+image-function contribution, and Qseek any `TravelTimeCorrections` subclass as
+`station_corrections`; `src/lassie3/lassie_ssst.py` and
+`src/lassie3/qseek_ssst.py` implement one each, and the detectors' stacking,
+refinement and detection code runs exactly as in the baseline on a table with
+the terms added. Both persisted run configs show the plugin
+(`!lassie3.CorrectedCakePhaseShifter`, `"corrections": "SSSTCorrections"`).
+
+Static terms learned for 2024-03-20 (seconds, observed minus modelled after
+per-event demeaning; σ is the scatter of the residuals, n their count):
+
+| station | P term (s) | n | σ (s) | S term (s) | n | σ (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| CZ.NKC | +0.024 | 172 | 0.047 | -0.040 | 172 | 0.055 |
+| GQ.LNDWU | +0.019 | 181 | 0.022 | -0.052 | 183 | 0.035 |
+| SX.GUNZ | +0.094 | 170 | 0.022 | +0.095 | 183 | 0.044 |
+| SX.MULD | -0.026 | 150 | 0.055 | +0.006 | 176 | 0.049 |
+| SX.ROHR | -0.031 | 102 | 0.049 | -0.150 | 111 | 0.038 |
+| SX.TANN | -0.079 | 180 | 0.036 | -0.110 | 181 | 0.050 |
+| SX.TRIB | -0.023 | 173 | 0.025 | -0.057 | 176 | 0.068 |
+| SX.WERD | -0.010 | 126 | 0.066 | -0.050 | 159 | 0.041 |
+| SX.WERN | +0.125 | 168 | 0.029 | +0.168 | 182 | 0.031 |
+
+The terms are small — ±0.17 s at most, the raw residuals average +0.035 s
+(P) and −0.037 s (S), and the per-event origin-time offsets they remove
+scatter by 0.19 s — which says the approximate 1D model is not far off for
+this cluster. They are nonetheless well determined (standard errors of a few
+milliseconds) and consistent in sign across the array: WERN and GUNZ, west and
+south-west of the source, are late; TANN and ROHR early. Because 176 of the
+185 training events lie in the same cluster as the evaluation day's events,
+the source-specific term at the cluster is essentially the cluster's own mean
+residual, and the "source-specific" part only shows up as the ±0.03 s
+difference towards the nine events near Nový Kostel (`terms.png`, bottom
+row). With reference events spread over several zones the same code would
+give genuinely position-dependent corrections.
+
+The terms do generalise to the held-out day. Measuring the evaluation day's
+own 11 WBNET events the same way (`results/ssst/eger-2024-03-20/held-out.json`,
+177 picks) and subtracting the term at each hypocentre reduces the RMS of the
+demeaned residuals from 0.086 s to 0.052 s for P and from 0.102 s to 0.043 s
+for S; the residuals correlate with the terms at 0.81 (P) and 0.91 (S). The
+static terms alone achieve the same (0.052 s and 0.044 s), which is the
+one-cluster situation described above. So the corrections are real; whether
+a detector profits from a 0.05–0.1 s tightening of its travel times is what
+the next section measures.
+
+### Four-way comparison
+
+Both detectors re-run with the terms (`task ssst`, tag `ssst`) at the same
+operating points as without them — Lassie re-calibrated to 30 MAD of its own
+image function (91.0 with terms, 90.9 without), Qseek at `MAD` — and scored
+against the same 13 reference events (`lassie3 compare-ssst`,
+`results/compare-ssst-eger-2024-03-20.json`; errors are medians and means over
+the matched events, bias is the mean signed offset detection − reference):
+
+| | lassie | lassie+ssst | qseek | qseek+ssst |
+|---|---:|---:|---:|---:|
+| detections | 38 | 38 | 1071 | 1111 |
+| of which supported | 16 | 15 | 130 | 141 |
+| recovered ±0.5 s | 9 | 10 | 11 | 11 |
+| recovered ±1 s | 10 | 10 | 13 | 12 |
+| recovered ±2 s | 10 | 10 | 13 | 13 |
+| recovered ±3 s | 12 | 12 | 13 | 13 |
+| recovered ±5 s | 13 | 13 | 13 | 13 |
+| recovered ±5 s and within 5 km | 13 | 13 | 13 | 13 |
+| median origin-time error (s) | 0.395 | 0.384 | 0.063 | 0.033 |
+| median epicentre error (km) | 2.11 | 1.98 | 0.81 | 0.24 |
+| median depth error (km) | 2.20 | 2.20 | 0.10 | 0.14 |
+| mean origin-time error (s) | 0.902 | 0.930 | 0.183 | 0.172 |
+| mean epicentre error (km) | 2.38 | 2.12 | 0.94 | 0.50 |
+| mean depth error (km) | 3.47 | 3.47 | 0.15 | 0.17 |
+| bias north (km) | +1.51 | +1.51 | +0.62 | +0.25 |
+| bias east (km) | +1.75 | +1.14 | +0.62 | +0.13 |
+| bias depth (km) | -0.19 | -0.19 | +0.03 | -0.05 |
+| bias origin time (s) | +0.354 | +0.419 | +0.088 | +0.151 |
+
+![Each detector with and without station terms](results/comparison-ssst-eger-2024-03-20.png)
+
+**Qseek gains a lot.** Its median epicentre error drops from 0.81 km to
+0.24 km and the mean from 0.94 km to 0.50 km. Against the eleven WBNET events
+its mean offset shrinks from +0.32 km north / +0.56 km east to −0.04 / +0.10 km
+(`review --tag ssst`): the north-east displacement that every run so far
+showed was a travel-time-model artefact, and the terms remove it. Origin times
+tighten (median 0.063 s → 0.033 s) and the semblance of the matched events
+rises from 1.02–1.51 to 1.24–1.89, i.e. the stacks focus better. Depth is
+unchanged (median 0.10 km → 0.14 km, at the 0.10 km constant-depth null), so
+depth agreement stays uninformative on this geometry. The one event fewer
+within ±1 s is #3, the PRU duplicate of #4, at +1.00 s. The catalog grows
+(1071 → 1111 detections, 130 → 141 pick-supported), which is what sharper
+stacks do to a MAD threshold and is not a validated gain.
+
+**Lassie gains little.** Its median epicentre error moves from 2.11 km to
+1.98 km and the east offset from +1.75 km to +1.14 km — events 7 and 8 move to
+a neighbouring node, the other eleven stay where they were — while its
+origin-time and depth errors do not change and the same three events still go
+to the 2 km node. A 0.1 s correction shifts an arrival by roughly 0.6 km at
+crustal velocities, below a 2 km node spacing, and Lassie's depth error is a
+characteristic-function and geometry problem that no travel-time correction
+addresses — the conclusion the 1 km grid variant reached from the other side.
+
+Caveats that bound the claim: the terms were learned from one cluster and
+evaluated on events in that cluster, so this shows that station terms fix
+Qseek's location bias *where the reference events are*; PhaseNet is both
+Qseek's characteristic function and the picker behind the terms, so any
+systematic PhaseNet pick bias is corrected for Qseek and only partly for
+Lassie's STA/LTA onset; and the evaluation day, although held out of the
+terms, is one day with thirteen events.
+
 ## Second opinion
 
 An independent adversarial review by a different model family (OpenAI
@@ -381,7 +554,10 @@ monkeypatches them, and the C extensions are compiled from the upstream
 sources. The only changes are build flags (below) and, from `doctor`, which
 copy of `libomp.dylib` the compiled extensions load — linkage, not code. The
 boundary de-emphasis for Lassie and the pick filter for Qseek are applied when
-reading the catalogs, after both detectors have finished.
+reading the catalogs, after both detectors have finished. The station-term
+variants add code, but only through the two tools' own extension points (a
+`Shifter` subclass, a `TravelTimeCorrections` subclass); the baseline runs do
+not use either.
 
 ## Upstream workarounds
 

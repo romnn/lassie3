@@ -70,10 +70,7 @@ def build_config(
         window_ratio=8.0,
         fsmooth=1.0,
         fnormalize=0.1,
-        shifter=lassie_shifter.CakePhaseShifter(
-            timing=gf_meta.Timing("{stored:p}"),
-            earthmodel_id=earthmodel.id,
-        ),
+        shifter=_shifter(settings, "P", earthmodel.id),
         trace_selector=channel_filter,
     )
 
@@ -85,10 +82,7 @@ def build_config(
         fmin=fmin,
         fmax=min(fmax, 15.0),
         fsmooth=0.5,
-        shifter=lassie_shifter.CakePhaseShifter(
-            timing=gf_meta.Timing("{stored:s}"),
-            earthmodel_id=earthmodel.id,
-        ),
+        shifter=_shifter(settings, "S", earthmodel.id),
         trace_selector=channel_filter,
     )
 
@@ -130,6 +124,27 @@ def build_config(
         # chunk; a 1 km grid (~55k nodes) would need ~6.5 GB per window.
         # Chunking is exact, it only bounds memory.
         stacking_blocksize=1000 if _node_count(grid) > 20_000 else None,
+    )
+
+
+def _shifter(settings: RunSettings, phase: str, earthmodel_id: str):
+    """Cake shifter for `phase`, carrying station terms when the run has them.
+
+    The corrected shifter is a `Shifter` subclass from this project, so a
+    terms run differs from the baseline only in the travel-time table Lassie
+    is handed; see `lassie3.lassie_ssst`.
+    """
+    timing = gf_meta.Timing(f"{{stored:{phase.lower()}}}")
+    if settings.station_terms is None:
+        return lassie_shifter.CakePhaseShifter(timing=timing, earthmodel_id=earthmodel_id)
+
+    from lassie3.lassie_ssst import CorrectedCakePhaseShifter
+
+    return CorrectedCakePhaseShifter(
+        timing=timing,
+        earthmodel_id=earthmodel_id,
+        terms_path=str(settings.station_terms.resolve()),
+        phase=phase,
     )
 
 

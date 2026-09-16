@@ -155,6 +155,15 @@ def input_manifest(settings: RunSettings) -> dict:
 
     files = sorted(settings.stage_dir.glob("*.mseed")) + [settings.stations_file, settings.velocity_model_file]
     files += station_xml_files(settings)
+    if settings.station_terms is not None:
+        files.append(settings.station_terms)
+
+    def key(path: Path) -> str:
+        try:
+            return str(path.relative_to(settings.results_dir.parent))
+        except ValueError:
+            return str(path)
+
     return {
         "captured": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "day": settings.day_str,
@@ -168,10 +177,8 @@ def input_manifest(settings: RunSettings) -> dict:
             "depth_bounds": list(settings.grid.depth_bounds),
         },
         "blacklist": list(settings.stations_blacklist),
-        "sha1": {
-            str(path.relative_to(settings.results_dir.parent)): hashlib.sha1(path.read_bytes()).hexdigest()
-            for path in files
-        },
+        "station_terms": key(settings.station_terms) if settings.station_terms else None,
+        "sha1": {key(path): hashlib.sha1(path.read_bytes()).hexdigest() for path in files},
     }
 
 
