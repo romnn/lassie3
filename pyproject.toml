@@ -1,0 +1,50 @@
+[project]
+name = "lassie3"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "romnn", email = "roman.dahm@gmx.de" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.3",
+    "pyrocko",
+    "lassie[gui]",
+    "qseek",
+]
+
+[project.scripts]
+lassie3 = "lassie3.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+python-preference = "only-managed"
+
+# pyrocko.gui (imported by lassie) uses matplotlib.rcsetup.all_backends,
+# removed in matplotlib 3.11.
+constraint-dependencies = ["matplotlib<3.11"]
+
+# lassie's setup.py imports pkg_resources, which newer setuptools no longer ships.
+[tool.uv.extra-build-dependencies]
+lassie = ["setuptools<81"]
+
+# Both need Homebrew's keg-only libomp (Apple-Silicon path). Pyrocko's setup.py
+# only enables OpenMP when `cc -fopenmp` works, which Apple clang refuses, so its
+# parstack stacker silently builds single-threaded; passing the Apple-clang
+# spelling here enables the pragmas regardless of that check.
+#
+# On macOS a CFLAGS variable replaces the interpreter's own compile flags rather
+# than extending them, which silently drops -O3 and makes the stacker ~8x
+# slower per thread. The interpreter's flags are therefore repeated up front.
+[tool.uv.extra-build-variables]
+qseek = { CFLAGS = "-I/opt/homebrew/opt/libomp/include", LDFLAGS = "-L/opt/homebrew/opt/libomp/lib" }
+pyrocko = { CFLAGS = "-fno-strict-overflow -Wsign-compare -Wunreachable-code -DNDEBUG -g -O3 -Wall -O3 -arch arm64 -mmacosx-version-min=11.0 -Wno-nullability-completeness -Wno-expansion-to-defined -Wno-undef-prefix -fPIC -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include", LDFLAGS = "-L/opt/homebrew/opt/libomp/lib -lomp" }
+
+[tool.uv.sources]
+pyrocko = { git = "https://github.com/pyrocko/pyrocko.git" }
+lassie = { git = "https://git.pyrocko.org/pyrocko/lassie.git" }
+qseek = { git = "https://github.com/pyrocko/qseek.git" }
