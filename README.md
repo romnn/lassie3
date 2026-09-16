@@ -2,7 +2,8 @@
 
 A reproducible side-by-side run of the two Pyrocko earthquake detectors over one
 day of the ICDP-EGER data set, so their catalogs can be compared on identical
-inputs.
+inputs — first as shipped, then each with source-specific station terms
+derived from the regional catalog (see "Nine stations and station terms").
 
 Both detectors stack shifted characteristic functions over a search volume, but
 differ in both halves of that:
@@ -56,6 +57,7 @@ results/
   comparison-<run>-strict.png the same runs shown above stricter levels (`task plot:strict`)
   review-<run>.json           adversarial checks (see below)
   ssst/eger-<day>/            station terms (terms.json), the picks behind them, terms.png
+  comparison-<run>-ssst.png   the station-term pair in the six-panel layout (`-ssst-strict.png` above stricter levels)
   comparison-ssst-<run>.png   four-way figure: each detector with and without station terms
   compare-ssst-<run>.json     the four-way numbers
   archive-sx7/                seven-station variant runs and their figures (see Data)
@@ -496,7 +498,9 @@ the matched events, bias is the mean signed offset detection − reference):
 ![Each detector with and without station terms](results/comparison-ssst-eger-2024-03-20.png)
 
 **Qseek gains a lot.** Its median epicentre error drops from 0.81 km to
-0.24 km and the mean from 0.94 km to 0.50 km. Against the eleven WBNET events
+0.24 km and the mean from 0.94 km to 0.50 km, and the gain is not a few
+events pulling a median: all 13 matched events move closer to their
+reference location. Against the eleven WBNET events
 its mean offset shrinks from +0.32 km north / +0.56 km east to −0.04 / +0.10 km
 (`review --tag ssst`): the north-east displacement that every run so far
 showed was a travel-time-model artefact, and the terms remove it. Origin times
@@ -509,8 +513,9 @@ within ±1 s is #3, the PRU duplicate of #4, at +1.00 s. The catalog grows
 stacks do to a MAD threshold and is not a validated gain.
 
 **Lassie gains little.** Its median epicentre error moves from 2.11 km to
-1.98 km and the east offset from +1.75 km to +1.14 km — events 7 and 8 move to
-a neighbouring node, the other eleven stay where they were — while its
+1.98 km and the east offset from +1.75 km to +1.14 km — four matches (events
+3, 5, 7 and 8) move to another node, the other nine stay where they were —
+while its
 origin-time and depth errors do not change and the same three events still go
 to the 2 km node. A 0.1 s correction shifts an arrival by roughly 0.6 km at
 crustal velocities, below a 2 km node spacing, and Lassie's depth error is a

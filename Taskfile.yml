@@ -149,9 +149,13 @@ tasks:
       - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst --station-terms results/ssst/eger-{{.DAY}}/terms.json run-qseek --force {{.CLI_ARGS}}
 
   ssst:compare:
-    desc: Figure and review of the station-term pair, then the four-way table and figure against the baseline runs
+    desc: Figures and review of the station-term pair, then the four-way table and figure against the baseline runs
+    vars:
+      LASSIE_MIN_MAD: '{{.LASSIE_MIN_MAD | default "40"}}'
+      QSEEK_MIN_SEMBLANCE: '{{.QSEEK_MIN_SEMBLANCE | default "0.5"}}'
     cmds:
       - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst plot
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst plot --lassie-min-mad {{.LASSIE_MIN_MAD}} --qseek-min-semblance {{.QSEEK_MIN_SEMBLANCE}} --suffix=-strict
       - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag ssst review
       - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} compare-ssst
 
