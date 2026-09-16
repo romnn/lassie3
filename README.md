@@ -13,7 +13,7 @@ differ in both halves of that:
 | search volume | fixed regular grid | octree, refined toward the peak |
 | threshold | absolute level on the image function | adaptive: 10x the MAD of each window's semblance, as both peak height and prominence |
 
-Shared on purpose: the same day, the same seven stations at their true
+Shared on purpose: the same day, the same stations at their true
 elevations, the same `HH?` channels, the same 1D velocity model, the same
 50x50x20 km search volume and reference point, and the same 2-30 Hz band for
 the waveform/P side. **Not** shared, because each is a stock capability of one
@@ -54,6 +54,7 @@ results/
   comparison-<run>.png        six-panel figure, including source-zone close-ups
   comparison-<run>-strict.png the same runs shown above stricter levels (`task plot:strict`)
   review-<run>.json           adversarial checks (see below)
+  archive-sx7/                seven-station variant runs and their figures (see Data)
 ```
 
 ## Reading the figure
@@ -147,7 +148,7 @@ candidates**, not a validated catalog.
 
 Receiver elevations matter and were initially wrong on the Lassie side: its
 `stations_path` loader sets receiver depth from the sensor's burial depth
-(0-34 m), not its elevation, so all seven stations sat at sea level while Qseek
+(0-34 m), not its elevation, so every station sat at sea level while Qseek
 traced from the true 510-870 m. Explicit receivers (a stock config feature)
 fix that; the fix changed Lassie's catalog from 49 to 47 detections, left every
 recall figure unchanged, and moved its shallow location mode from the 2 km node
@@ -233,23 +234,40 @@ writes `results/review-<run>.json`. Findings for 2024-03-20:
 
 `download.sh` fetches StationXML and miniSEED for 2024-03-16..30.
 
-**Only the seven SX stations are open data.** The WB (7), 6A (4) and 1D (1)
-stations are restricted at GEOFON and need an EIDA token, without which the
-download silently yields metadata but no waveforms:
+**Nine stations are open data:** the seven SX stations plus two found later,
+**CZ.NKC** (the Nový Kostel site, whose broadband STS-2 is published openly in
+the Czech Regional Seismic Network on GEOFON while the same site's WB.NKC
+stream stays restricted) and **GQ.LNDWU** (BGR's Landwüst borehole site).
+LNDWU also records a 200 Hz rotational sensor (`HJ1-3`); only its `HH?`
+channels are used, which the `HH?` channel selection in `RunSettings.channels`
+enforces for every station. The WB (7), 6A (4) and 1D (1) stations remain
+restricted at GEOFON and need an EIDA token, without which the download
+silently yields metadata but no waveforms:
 
 ```sh
 EIDA_TOKEN=~/.eidatoken task data:download
 ```
 
-This matters for the result, not just the station count: all seven SX stations
-lie north to north-west of the Nový Kostel focal zone at 8–26 km, so the array
-has no southern or eastern coverage and depth is poorly constrained. The missing
-WB network sits directly above the swarm at 250 Hz.
+Geometry matters for the result, not just the station count. The reference
+events of 2024-03-20 lie at 50.37°N 12.49°E, ~10 km deep, near Klingenthal on
+the German–Czech border, about 15 km north of Nový Kostel. The SX stations see
+that source from the north-west quadrant only, at 5–25 km (TANN 5 km N, MULD
+7 km NW, GUNZ 11 km W, WERN 12 km SW; WERD, ROHR and TRIB further out), so the
+seven-station array has no southern or eastern coverage and depth is poorly
+constrained. NKC (16 km S) and LNDWU (17 km SW) add the southern azimuths; the
+east stays empty, and no open station sits above the source.
 
 `task data:inventory` reports which stations actually have data for a given day.
 
-2024-03-20 is the default because all seven SX stations have uninterrupted
-100 Hz coverage that day.
+2024-03-20 is the default because all nine open stations have uninterrupted
+100 Hz `HH?` coverage that day.
+
+**The results in this README were computed with the seven SX stations**, before
+CZ.NKC and GQ.LNDWU were downloaded. Those runs are kept under the tag `sx7`
+(`results/lassie/eger-2024-03-20-sx7.turd`, `results/qseek/eger-2024-03-20-sx7`,
+`results/comparison-eger-2024-03-20-sx7.png`; the tagged variants and sweeps
+under `results/archive-sx7/`), and `lassie3 --tag sx7 summary|review|plot`
+reads them. Every untagged run from now on includes all nine stations.
 
 ## Velocity model
 
@@ -304,6 +322,35 @@ evenly across the whole search grid instead of clustering near the array. Qseek
 degrades more gracefully because its per-event pick count and azimuthal coverage
 let weak locations be filtered afterwards; `lassie3 summary` reports both the
 raw and the pick-supported counts for that reason.
+
+## Variants
+
+Tagged runs live next to the baseline (`results/lassie/eger-<day>-<tag>.turd`)
+and are compared against the baseline Qseek run. The runs below were made
+with the seven SX stations and are archived under `results/archive-sx7/`.
+
+**1 km Lassie grid** (`task lassie:grid1km`, ~35 min): the obvious objection to
+Lassie's location errors is its 2 km node spacing — nearest-node assignment
+alone would cost ~0.9 km horizontally and ~0.2 km in depth. Halving the
+spacing (54,621 nodes, chunked stacking) changes essentially nothing:
+
+| | 2 km baseline | 1 km variant |
+|---|---|---|
+| detections at 30 MAD of its own image function | 47 (threshold 71.4) | 42 (threshold 72.4) |
+| recovered at ±0.5 / 1 / 3 / 5 s | 5 / 7 / 11 / 13 | 4 / 7 / 11 / 13 |
+| median origin time / epicentre / depth error | 0.63 s / 2.05 km / 2.60 km | 0.63 s / 2.05 km / 2.60 km |
+| mean origin time / epicentre / depth error | 1.59 s / 3.35 km / 5.44 km | 1.60 s / 3.38 km / 5.21 km |
+| matched depth nodes | 0 km ×5, 10 ×1, 12 ×6, 18 ×1 | 1 km ×5, 11 ×1, 12 ×6, 19 ×1 |
+| within one node of the surface | 34 of 47 | 29 of 42 |
+
+The same five events still go shallow with a ~2.5 s late origin time and the
+same seven go to 11–12 km, on a grid that now has nodes at 9 and 10 km. The
+epicentre error does not move either. Lassie's errors on this array are a
+property of its characteristic functions and the one-sided geometry, not of
+its grid. (The finer grid also halves Lassie's travel-time interpolation
+tolerance, which is tied to the node spacing, so this run is not *only* a
+resolution change; it is nonetheless the closest stock Lassie gets to Qseek's
+312 m octree.)
 
 ## Second opinion
 

@@ -121,7 +121,7 @@ def _title(settings, shown, catalogs, lassie_min, qseek_min, n_stations, spacing
     used = thresholds_used(settings)
     east, north, depth = settings.grid.extents()
     lines = [
-        f"ICDP Eger baseline — {settings.run_name} — {n_stations} SX stations, "
+        f"ICDP Eger baseline — {settings.run_name} — {n_stations} stations, "
         f"{settings.bandpass[0]}–{settings.bandpass[1]} Hz, shared 1D model, "
         f"{east / 1e3:.0f}x{north / 1e3:.0f}x{depth / 1e3:.0f} km search volume; "
         f"Lassie grid {spacing / 1e3:g} km, Qseek octree "
@@ -324,7 +324,7 @@ def _draw_reference(axis, reference, x_of, y_of, label=True, number=False) -> No
 def _plot_map(axis, catalogs, sizes, stations, settings, reference, spacing) -> None:
     _draw_lassie_grid(axis, settings, spacing, depth_section=False)
     axis.scatter([s.lon for s in stations], [s.lat for s in stations], marker="v", s=90,
-                 c="#333333", zorder=5, label=f"SX stations ({len(stations)})")
+                 c="#333333", zorder=5, label=f"stations ({len(stations)})")
     for station in stations:
         axis.annotate(station.station, (station.lon, station.lat), fontsize=7,
                       xytext=(4, 4), textcoords="offset points")

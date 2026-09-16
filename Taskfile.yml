@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  # The one full day without gaps across all seven SX stations.
+  # The one full day without gaps across all nine open stations.
   DAY: '{{.DAY | default "2024-03-20"}}'
   # Shorten for a quick end-to-end check; 24 is the full baseline.
   HOURS: '{{.HOURS | default "24"}}'
@@ -157,7 +157,8 @@ tasks:
       Fetches StationXML and miniSEED for 2024-03-16..30.
 
       The WB, 6A and 1D networks are restricted at GEOFON and need an EIDA
-      token, without which only the seven open SX stations arrive:
+      token, without which only the nine open stations (SX.*, CZ.NKC,
+      GQ.LNDWU) arrive:
 
         EIDA_TOKEN=~/.eidatoken task data:download
 

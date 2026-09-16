@@ -63,9 +63,9 @@ def staged_station_codes(settings: RunSettings) -> set[tuple[str, str]]:
     """Return (network, station) pairs that actually have data for the day.
 
     Derived from the staged filenames rather than from the StationXML: metadata
-    is present for all 19 stations, but only the SX network downloaded
-    waveforms, and feeding the detectors phantom stations skews the stack
-    normalisation and the azimuthal-coverage statistics.
+    is present for all 21 stations, but only the nine open ones (SX, CZ.NKC,
+    GQ.LNDWU) have waveforms, and feeding the detectors phantom stations skews
+    the stack normalisation and the azimuthal-coverage statistics.
     """
     codes = set()
     for path in sorted(settings.stage_dir.glob("*.mseed")):

@@ -15,7 +15,7 @@ from lassie3.settings import RunSettings
 logger = logging.getLogger(__name__)
 
 #: Minimum picks for a Qseek location to count as well constrained. Six is two
-#: phases on three of the seven stations, the point at which the depth
+#: phases on three stations, the point at which the depth
 #: distribution stops piling up at the surface.
 MIN_PICKS = 6
 

@@ -14,7 +14,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data_icdp_eger"
 RESULTS_DIR = PROJECT_DIR / "results"
 
-#: Day selected as the baseline: all seven SX stations have uninterrupted
+#: Day selected as the baseline: all nine open stations have uninterrupted
 #: 100 Hz HH? coverage, verified against the miniSEED headers.
 DEFAULT_DAY = dt.date(2024, 3, 20)
 
@@ -107,6 +107,8 @@ class RunSettings:
     #: Restricts both runs to the broadband 100 Hz channels. SX.GUNZ, SX.MULD,
     #: SX.TANN and SX.WERN also carry BH? and LH?, which would otherwise enter
     #: the stack as duplicate, lower-rate copies of the same ground motion.
+    #: GQ.LNDWU adds a 200 Hz rotational HJ? triplet, which is rotation rate
+    #: rather than translational ground motion and is excluded the same way.
     channels: tuple[str, ...] = ("HHE", "HHN", "HHZ")
 
     #: Band common to both detectors, above the regional microseism peak and
