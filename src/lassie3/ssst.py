@@ -238,6 +238,11 @@ def training_events(settings: RunSettings, days: list[dt.date]) -> list[dict]:
         for index, event in enumerate(reference.load(day_settings)):
             if event["author"] != "WBNET":
                 continue
+            # Checked on the event's own time as well as on the day list, so
+            # the evaluation window can never leak in through a cached
+            # catalog or an odd `hours` setting.
+            if settings.tmin <= event["time"] < settings.tmax:
+                continue
             event = dict(event, id=f"{day.isoformat()}-{index:03d}")
             events.append(event)
     logger.info("%d WBNET reference events on %d training days", len(events), len(days))
@@ -381,13 +386,15 @@ def measure_picks(
 
 
 def demean_and_reject(picks: list[Pick], terms_settings: TermsSettings) -> list[Pick]:
-    """Remove each event's origin-time freedom, then drop outliers, then repeat once.
+    """Remove each event's origin-time freedom, then drop outliers, and re-centre.
 
     The per-event mean over all its P and S residuals is what a location
     routine would absorb into the origin time; subtracting it leaves the
     station-differential part that station terms are meant to capture.
     Outliers are judged per phase against `outlier_level` robust standard
     deviations of the demeaned residuals, as SCOTER's dynamic rejection does.
+    Rejection changes the means, so the sequence is demean, reject, demean,
+    reject, demean: the kept picks of every event average to zero at the end.
     """
     by_event: dict[str, list[Pick]] = {}
     for pick in picks:
@@ -395,28 +402,37 @@ def demean_and_reject(picks: list[Pick], terms_settings: TermsSettings) -> list[
         by_event.setdefault(pick.event, []).append(pick)
 
     for _ in range(2):
-        for event_picks in by_event.values():
-            kept = [p for p in event_picks if p.kept]
-            if len(kept) < terms_settings.min_picks_per_event:
-                for p in event_picks:
-                    p.kept = False
-                    p.demeaned = None
-                continue
-            mean = float(np.mean([p.residual for p in kept]))
-            for p in event_picks:
-                p.demeaned = p.residual - mean
-
-        for phase in PHASE_DEFINITIONS:
-            values = np.array([p.demeaned for p in picks if p.kept and p.phase == phase and p.demeaned is not None])
-            if values.size == 0:
-                continue
-            sigma = MAD_TO_SIGMA * float(np.median(np.abs(values - np.median(values))))
-            cutoff = terms_settings.outlier_level * max(sigma, 1e-3)
-            for p in picks:
-                if p.phase == phase and p.kept and p.demeaned is not None and abs(p.demeaned) > cutoff:
-                    p.kept = False
-
+        _demean(by_event, terms_settings.min_picks_per_event)
+        _reject_outliers(picks, terms_settings.outlier_level)
+    _demean(by_event, terms_settings.min_picks_per_event)
     return picks
+
+
+def _demean(by_event: dict[str, list[Pick]], min_picks: int) -> None:
+    """Centre every event's residuals on the mean of its kept picks."""
+    for event_picks in by_event.values():
+        kept = [p for p in event_picks if p.kept]
+        if len(kept) < min_picks:
+            for p in event_picks:
+                p.kept = False
+                p.demeaned = None
+            continue
+        mean = float(np.mean([p.residual for p in kept]))
+        for p in event_picks:
+            p.demeaned = p.residual - mean
+
+
+def _reject_outliers(picks: list[Pick], level: float) -> None:
+    """Drop kept picks whose demeaned residual is beyond `level` robust sigmas of their phase."""
+    for phase in PHASE_DEFINITIONS:
+        values = np.array([p.demeaned for p in picks if p.kept and p.phase == phase and p.demeaned is not None])
+        if values.size == 0:
+            continue
+        sigma = MAD_TO_SIGMA * float(np.median(np.abs(values - np.median(values))))
+        cutoff = level * max(sigma, 1e-3)
+        for p in picks:
+            if p.phase == phase and p.kept and p.demeaned is not None and abs(p.demeaned) > cutoff:
+                p.kept = False
 
 
 def build_terms(
@@ -499,6 +515,11 @@ def derive(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     days = days or training_days(settings)
+    if settings.day in days:
+        # The evaluation day never informs the terms it is scored against,
+        # whichever way the days were chosen.
+        logger.warning("dropping %s from the training days: it is the evaluation day", settings.day_str)
+        days = [day for day in days if day != settings.day]
     events = training_events(settings, days)
     if not events:
         raise RuntimeError("no reference events on the training days")
@@ -530,8 +551,9 @@ def derive(
 
     # Kept apart from terms.json, which the detector runs hash into their
     # input manifests.
-    held_out = held_out_check(settings, terms, terms_settings)
+    held_out, held_out_picks = held_out_check(settings, terms, terms_settings)
     (out_dir / "held-out.json").write_text(json.dumps(held_out, indent=2))
+    write_picks(held_out_picks, out_dir / "held-out-picks.csv")
     logger.info("held-out check on %s: %s", settings.day_str, held_out)
     return out
 
@@ -540,7 +562,7 @@ def held_out_check(
     settings: RunSettings,
     terms: StationTerms,
     terms_settings: TermsSettings,
-) -> dict:
+) -> tuple[dict, list[Pick]]:
     """Do the terms predict the evaluation day's own residuals?
 
     The evaluation day's WBNET events never entered the terms, so measuring
@@ -555,7 +577,7 @@ def held_out_check(
         if event["author"] == "WBNET"
     ]
     if not events:
-        return {"n_events": 0}
+        return {"n_events": 0}, []
     picks = demean_and_reject(measure_picks(settings, terms_settings, events), terms_settings)
     by_id = {event["id"]: event for event in events}
 
@@ -580,7 +602,7 @@ def held_out_check(
             "rms_after_terms_s": round(rms(residual - term), 4),
             "correlation_residual_term": round(float(np.corrcoef(residual, term)[0, 1]), 3) if len(kept) > 2 else None,
         }
-    return result
+    return result, picks
 
 
 def render(terms: StationTerms) -> str:
