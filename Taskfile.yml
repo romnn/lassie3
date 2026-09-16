@@ -1,0 +1,175 @@
+version: "3"
+
+vars:
+  # The one full day without gaps across all seven SX stations.
+  DAY: '{{.DAY | default "2024-03-20"}}'
+  # Shorten for a quick end-to-end check; 24 is the full baseline.
+  HOURS: '{{.HOURS | default "24"}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  sync:
+    desc: Install/refresh the environment from uv.lock
+    cmds:
+      - uv sync
+      # Reinstalling Qseek restores the wheel's Homebrew OpenMP linkage.
+      - task: doctor
+
+  doctor:
+    desc: Repair the Qseek/PyTorch OpenMP conflict (needed after every uv sync)
+    cmds:
+      - uv run lassie3 doctor
+
+  prepare:
+    desc: Stage waveforms, stations and the shared velocity model
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} prepare
+    sources:
+      - data_icdp_eger/mseed/**/*.mseed
+      - data_icdp_eger/stationxml/*.xml
+      - src/lassie3/prepare.py
+      - src/lassie3/settings.py
+    generates:
+      - results/_stage/{{.DAY}}/*.mseed
+      - results/_stage/stations.yaml
+      - results/_stage/velocity.nd
+
+  lassie:
+    desc: Run the Lassie v1 search (STA/LTA + wave-packet stacking)
+    deps:
+      - task: prepare
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} run-lassie --force {{.CLI_ARGS}}
+
+  qseek:
+    desc: Run the Qseek search (PhaseNet + octree stacking)
+    deps:
+      - task: prepare
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - doctor
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} run-qseek --force {{.CLI_ARGS}}
+
+  catalog:
+    desc: Fetch the ISC/WBNET reference catalog for DAY
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} fetch-catalog
+
+  plot:
+    desc: Render the comparison figure into results/
+    deps:
+      - task: catalog
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} plot
+
+  plot:strict:
+    desc: Same figure showing only detections above a stricter level on each detector's own scale
+    vars:
+      LASSIE_MIN_MAD: '{{.LASSIE_MIN_MAD | default "40"}}'
+      QSEEK_MIN_SEMBLANCE: '{{.QSEEK_MIN_SEMBLANCE | default "0.5"}}'
+    deps:
+      - task: catalog
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} plot --lassie-min-mad {{.LASSIE_MIN_MAD}} --qseek-min-semblance {{.QSEEK_MIN_SEMBLANCE}} --suffix=-strict
+
+  summary:
+    desc: Print catalog statistics and validation against the reference catalog
+    deps:
+      - task: catalog
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} summary
+
+  review:
+    desc: Adversarial checks - chance matches, boundary artefacts, per-event table
+    deps:
+      - task: catalog
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} review
+
+  lassie:grid1km:
+    desc: Lassie on a 1 km grid (tag grid1km, ~35 min); Qseek's baseline run is reused for the comparison
+    deps:
+      - task: prepare
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag grid1km --lassie-spacing 1000 run-lassie --force
+      # Point the tagged comparison at the baseline Qseek run; only Lassie changed.
+      - ln -sfn eger-{{.DAY}} results/qseek/eger-{{.DAY}}-grid1km
+      - ln -sf eger-{{.DAY}}.json results/qseek/eger-{{.DAY}}-grid1km.json
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag grid1km --lassie-spacing 1000 plot
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} --tag grid1km --lassie-spacing 1000 review
+
+  sweep:
+    desc: Re-run Lassie at 20/40/60 MAD (tagged runs) and tabulate against Qseek post-filters
+    deps:
+      - task: catalog
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+    cmds:
+      - uv run lassie3 --day {{.DAY}} --hours {{.HOURS}} sweep {{.CLI_ARGS}}
+
+  all:
+    desc: Full baseline - both searches, then figure, summary and review
+    cmds:
+      # go-task does not propagate vars through nested task calls, so DAY and
+      # HOURS must be forwarded explicitly or `task smoke` runs a full day.
+      - task: lassie
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: qseek
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: plot
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: plot:strict
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: summary
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+      - task: review
+        vars: {DAY: "{{.DAY}}", HOURS: "{{.HOURS}}"}
+
+  smoke:
+    desc: One-hour end-to-end run, for checking a config change quickly
+    cmds:
+      - task: all
+        vars: {HOURS: "1"}
+
+  clean:
+    desc: Remove all run outputs, keeping the staged inputs
+    cmds:
+      - rm -rf results/lassie results/qseek results/comparison-*.png
+
+  clean:all:
+    desc: Remove every generated file including the staged inputs
+    cmds:
+      - rm -rf results
+
+  data:download:
+    desc: (Re)download the ICDP Eger data set
+    summary: |
+      Fetches StationXML and miniSEED for 2024-03-16..30.
+
+      The WB, 6A and 1D networks are restricted at GEOFON and need an EIDA
+      token, without which only the seven open SX stations arrive:
+
+        EIDA_TOKEN=~/.eidatoken task data:download
+
+      Get a token from https://geofon.gfz.de/eas/ (valid ~1 year). After a
+      token run, re-run `task all` to rebuild the baseline on the full network.
+    cmds:
+      - ./download.sh
+
+  data:inventory:
+    desc: Report which stations have waveform data for DAY
+    cmds:
+      - |
+        echo "stations with data on {{.DAY}}:"
+        find data_icdp_eger/mseed -name "*.{{.DAY}}.mseed" -exec basename {} \; \
+          | cut -d. -f1,2 | sort
